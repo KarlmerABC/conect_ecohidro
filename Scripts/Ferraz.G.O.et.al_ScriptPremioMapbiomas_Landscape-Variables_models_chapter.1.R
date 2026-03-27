@@ -1,22 +1,22 @@
 # ==============================================================================
-# PROJETO: MODELAGEM INTEGRADA - DCI (GAM) E PctWater (Hurdle)
-# ==============================================================================
-# Descrição: Script integrado para modelagem estatística focada no Índice de 
-# Conectividade Dendrítica (DCI) e na Proporção de Superfície de Água (PctWater).
-#
-# Principais características:
-# - Mantém a agregação de resumo no estilo v1 (AIC, BIC, pseudo-R2) e rotina de salvamento.
-# - Adota o teste de combinação de preditores no estilo v2.
-# - Utiliza exclusivamente o modelo GAM para analisar o DCI.
-# - Utiliza o modelo Hurdle para analisar PctWater (Logit + Gamma GAM).
+# Utiliza o modelo Hurdle para analisar PctWater (Logit + Gamma GAM).
 # ==============================================================================
 
 
 # ==============================================================================
 # PARTE 1 - CONFIGURAÇÃO DO SISTEMA E BIBLIOTECAS
 # ==============================================================================
-# Definir diretório de trabalho
-setwd("C:/SIG/Masters/Chapter_1")
+# FINALIDADE: Preparar o ambiente de trabalho do R, garantindo que todos os 
+# pacotes necessários para manipulação, modelagem e visualização gráfica estejam disponíveis.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Definição do diretório de trabalho principal.
+# 2. Listagem dos pacotes (bibliotecas) exigidos pelo script.
+# 3. Verificação e instalação automática de pacotes ausentes.
+# 4. Carregamento de todas as bibliotecas no ambiente.
+# ==============================================================================
+# Definir diretório de trabalho onde os dados estão armazenados e onde os resultados serão salvos
+setwd("Caminho/para/seu/diretorio_de_trabalho") # Exemplo: "C:/Projetos/Meu_Projeto"
 
 # --- Bibliotecas ---
 pkgs <- c(
@@ -51,27 +51,48 @@ message("Bibliotecas carregadas com sucesso.")
 # ==============================================================================
 # PARTE 2 - CARREGAMENTO E PREPARAÇÃO DOS DADOS
 # ==============================================================================
-file_path_csv <- "ALL_bhs_sheds_lv09_metrics.csv"
-file_path_shp <- "ALL_bh_sheds_lv09.shp"
+# FINALIDADE: Importar os dados brutos e realizar a limpeza e formatação inicial 
+# necessária para as análises estatísticas subsequentes.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Leitura do arquivo de dados tabulares (CSV).
+# 2. Conversão de colunas chave para formatos numéricos adequados.
+# 3. Tratamento de valores ausentes (NAs) em variáveis específicas.
+# 4. Remoção de outliers conhecidos e filtragem de dados inválidos.
+# 5. Criação de novas variáveis (ex: classes de área) e ajuste de unidades.
+# ==============================================================================
+# Definir os nomes dos arquivos de entrada
+file_path_csv <- "nome_do_arquivo_de_dados.csv" # Arquivo em formato CSV com todas as variáveis de cada unidade amostral (No presente projeto foram consideradas bacias hidrográficas de nível 9 da base HydroSHEDS)
+file_path_shp <- "nome_do_arquivo_espacial.shp" # Arquivo shapefile correspondente às unidades amostrais para análises espaciais (se aplicável)
 
 if (!file.exists(file_path_csv)) stop("Arquivo CSV não encontrado: ", file_path_csv)
 
 bhs_metrics <- read.csv(file_path_csv, sep = ";", header = TRUE, dec = ",")
 
-# Converter colunas específicas para formato numérico
+# Converter colunas específicas para formato numérico (Ajuste os nomes das colunas conforme sua base de dados)
 cols_to_convert <- c(
-  "DCI_index","SUB_AREA","ratio_DEFOREST","RdLength","RdDensity",
-  "HyLength","HyDensity","COUNT_area","MEAN_area","PropCount_km2",
-  "AvgArea_km2","SUM_area_swa","PctWater_swa","Centroid_X","Centroid_Y",
-  "Prop_Occup_Pct","highway_DIST_meters"
+  "DCI_index",           # Índice de Conectividade Dendrítica (DCI)
+  "SUB_AREA",            # Área total da bacia hidrográfica
+  "ratio_DEFOREST",      # Proporção de cobertura NÃO floresta em cada bacia hidrográfica
+  "RdLength",            # Comprimento total de estradas na bacia (km)
+  "RdDensity",           # Densidade de estradas na bacia 
+  "HyLength",            # Comprimento total da rede hidrográfica na bacia (km)
+  "HyDensity",           # Densidade da rede de drenagem na bacia
+  "COUNT_area",          # Contagem de áreas de superfície de água exposta (SWA) 
+  "MEAN_area",           # Área média das superfície de água exposta (km²)
+  "SUM_area_swa",        # Soma total da área de superfície de água exposta (km²)
+  "PctWater_swa",        # Proporção de superfície de água exposta na bacia (%)
+  "Centroid_X",          # Coordenada X do centroide da bacia
+  "Centroid_Y",          # Coordenada Y do centroide da bacia
+  "highway_DIST_meters"  # Distância da bacia hidrográfica até rodovias (km)
 )
 bhs_metrics <- bhs_metrics %>% mutate(across(all_of(cols_to_convert), as.numeric))
 
 # Substituir NAs em SUM_area_swa por 0
 bhs_metrics$SUM_area_swa[is.na(bhs_metrics$SUM_area_swa)] <- 0
 
-# Remoção opcional de outliers (conforme versão 3.2 do script original)
-remove_ids <- c("PGM_02", "PGM_07", "PGM_32", "STM_10") # PGM_32 é outlier de DCI vs Desmatamento
+# Remoção opcional de outliers (Ajuste os IDs conforme a necessidade do seu projeto)
+remove_ids <- c("PGM_02", "PGM_07", "PGM_32", "STM_10") # Exemplo: PGM_32 é outlier de DCI vs Desmatamento
 
 bhs_metrics <- bhs_metrics %>%
   filter(!(ID_bh_regi %in% remove_ids),
@@ -81,36 +102,25 @@ bhs_metrics <- bhs_metrics %>%
          DCI_index > 0) %>%
   mutate(
     REGION = as.factor(REGION),
-    basin_area_CLASS = cut(
-      SUB_AREA,
-      breaks = quantile(SUB_AREA, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
-      labels = c("Small","Medium","Large"),
-      include.lowest = TRUE
-    ),
     ratio_DEFOREST_adjusted = ratio_DEFOREST + 0.0001,
     RdDensity_div_ratio_DEFOREST = RdDensity / ratio_DEFOREST_adjusted
   )
-
-# Converter distância de rodovias de metros para quilômetros, preservando zeros e NAs
-if ("highway_DIST_meters" %in% names(bhs_metrics)) {
-  bhs_metrics <- bhs_metrics %>%
-    mutate(
-      highway_DIST_meters = case_when(
-        is.na(highway_DIST_meters) ~ NA_real_,
-        highway_DIST_meters == 0 ~ 0,
-        TRUE ~ highway_DIST_meters / 1000
-      )
-    )
-  message("Coluna 'highway_DIST_meters' convertida para quilômetros.")
-} else {
-  warning("Coluna 'highway_DIST_meters' não encontrada; conversão ignorada.")
-}
 
 message("Base de dados carregada, outliers removidos e pré-processamento concluído.")
 
 
 # ==============================================================================
-# PARTE 3 - TRANSFORMAÇÕES DE VARIÁVEIS (YEO-JOHNSON) E EXPLORAÇÃO
+# PARTE 3 - TRANSFORMAÇÕES DE VARIÁVEIS (YEO-JOHNSON) E ANÁLISES EXPLORATÓRIAS
+# ==============================================================================
+# FINALIDADE: Padronizar e normalizar as variáveis preditoras e resposta para 
+# melhorar a estabilidade e a acurácia dos modelos estatísticos.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Identificação de colunas constantes ou contendo apenas valores ausentes (NAs).
+# 2. Aplicação da transformação de Yeo-Johnson nAs variáveis preditoras e resposta.
+# 3. Centralização e escalonamento (Z-score) das variáveis transformadas.
+# 4. Criação de variáveis logarítmicas e binárias (0/1) auxiliares.
+# 5. (Opcional) Geração de matriz de correlação para exploração visual.
 # ==============================================================================
 # Função auxiliar: detectar colunas constantes ou contendo apenas NA
 detect_constant_or_all_na <- function(df) {
@@ -179,7 +189,18 @@ corrplot::corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black
 
 
 # ==============================================================================
-# PARTE 4 - MODELAGEM E SELEÇÃO (GAM E HURDLE)
+# PARTE 4 - MODELAGEM E SELEÇÃO DOS MODELOS DE MELHOR PERFORMANCE (GAM E HURDLE)
+# ==============================================================================
+# FINALIDADE: Construir os modelos com diferentes combinações das variáveis
+# preditoras e resposta, a fim de identificar o modelo com melhor perfomance 
+# e, assim, possibilitar a análise dos preditores mais significativos.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Criação de modelos com todas as combinações possíveis das variáveis.
+# 2. Definição de funções para extração automatizada de métricas (AIC, BIC, R2).
+# 3. Ajuste de modelos GAM para a variável DCI (Índice de Conectividade).
+# 4. Ajuste de modelos Hurdle (Logit para presença + Gamma para proporção) para PctWater.
+# 5. Exportar os resultados brutos e seleção do melhor modelo de cada tipo via AIC.
 # ==============================================================================
 build_predictor_sets <- function(base_always = "ratio_DEFOREST_yj",
                                  others = c("HyDensity_yj","highway_DIST_meters_yj")) {
@@ -232,7 +253,8 @@ run_dci_gams <- function(data, predictor_combos, response = "DCI_index_log") {
 }
 
 dci_summary <- run_dci_gams(bhs_metrics, predictor_combos, response = "DCI_index_log")
-write.csv(dci_summary, "dci_gam_models_v7.csv", row.names = FALSE)
+# Salva tabela comparativa com todas as combinações do modelo GAM para DCI
+write.csv(dci_summary, "resultados_modelos_gam_dci.csv", row.names = FALSE)
 
 # --- PctWater: Modelos Hurdle (Logit + Gamma GAM) ---
 run_pctwater_hurdle <- function(data, predictor_combos, response_pos = "Pct_pos", response_gamma = "PctWater_swa") {
@@ -262,11 +284,13 @@ run_pctwater_hurdle <- function(data, predictor_combos, response_pos = "Pct_pos"
 }
 
 pct_summary <- run_pctwater_hurdle(bhs_metrics, predictor_combos)
-write.csv(pct_summary, "pctwater_hurdle_models_v7.csv", row.names = FALSE)
+# Salva tabela comparativa com todas as combinações do modelo Hurdle (Logit + Gamma)
+write.csv(pct_summary, "resultados_modelos_hurdle_pctwater.csv", row.names = FALSE)
 
 # --- Seleção dos Melhores Modelos por AIC ---
 all_results <- bind_rows(dci_summary, pct_summary)
-write.csv(all_results, "all_model_comparison_v7.csv", row.names = FALSE)
+# Salva um compilado com todos os modelos executados
+write.csv(all_results, "comparacao_todos_modelos_aic.csv", row.names = FALSE)
 
 safe_as_num <- function(x) { x2 <- suppressWarnings(as.numeric(as.character(x))); ifelse(is.na(x2), NA_real_, x2) }
 extract_response_from_formula <- function(formula_str) { parts <- unlist(strsplit(formula_str, "~", fixed = TRUE)); trimws(parts[1]) }
@@ -288,7 +312,17 @@ print(head(dci_summary[order(dci_summary$AIC), ], 5))
 
 
 # ==============================================================================
-# PARTE 5 - GERAÇÃO DA TABELA FINAL (PADRÃO ABNT/APA)
+# PARTE 5 - TABELA FINAL COM RESULTADOS DOS MODELOS (PADRÃO ABNT/APA)
+# ==============================================================================
+# FINALIDADE: Sintetizar os resultados dos melhores modelos selecionados em uma 
+# tabela formatada e pronta para inclusão em relatórios ou artigos científicos.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Re-ajuste dos melhores modelos (DCI, Logit e Gamma) com toda a base de dados.
+# 2. Extração dos coeficientes paramétricos (estimativas/erros) e de suavização.
+# 3. Substituição dos nomes técnicos por termos claros e padronizados.
+# 4. Formatação de valores de p e inclusão de asteriscos para identificar o grau de significância (*, **, ***).
+# 5. Construção e exportação de uma tabela para documento MS Word (.docx).
 # ==============================================================================
 if (!requireNamespace("broom", quietly = TRUE)) install.packages("broom")
 if (!requireNamespace("flextable", quietly = TRUE)) install.packages("flextable")
@@ -349,11 +383,20 @@ ft <- flextable(table_wide) %>%
   add_footer_lines("Nota: Termos paramétricos = Estimativa (Erro Padrão). Termos de suavização = Graus de Liberdade Efetivos (Estatística F). *** p<0.001, ** p<0.01, * p<0.05.") %>%
   color(part = "footer", color = "#666666") %>% fontsize(part = "footer", size = 9) %>% bold(part = "header")
 
-save_as_docx(ft, path = "Tabela_Final_Resultados.docx")
+# Salva a tabela final sumarizada formatada para MS Word
+save_as_docx(ft, path = "Tabela_Final_Resultados_Modelos.docx")
 
 
 # ==============================================================================
 # PARTE 6 - DIAGNÓSTICOS DOS MODELOS (DHARMa, Concurvity, ROC)
+# ==============================================================================
+# FINALIDADE: Avaliar a validade e a qualidade do ajuste dos modelos selecionados, 
+# verificando o atendimento às premissas estatísticas e sua capacidade preditiva.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Plotagem de resíduos simulados (DHARMa) para avaliar dispersão e distribuição.
+# 2. Cálculo de 'concurvity' para verificar redundância/colinearidade não linear nos GAMs.
+# 3. Construção e plotagem da Curva ROC para validar a acurácia do modelo Logit (Presença/Ausência).
 # ==============================================================================
 if (!requireNamespace("DHARMa", quietly = TRUE)) install.packages("DHARMa")
 if (!requireNamespace("pROC", quietly = TRUE)) install.packages("pROC")
@@ -379,11 +422,20 @@ plot.roc(roc_obj, main = "ROC - Logit (Presença de Água)")
 
 
 # ==============================================================================
-# PARTE 7 - VISUALIZAÇÕES ANALÍTICAS E LIMIARES ECOLÓGICOS (DCI)
+# PARTE 7 - GRÁFICOS DCI + Ponto de máxima curvatura
+# ==============================================================================
+# FINALIDADE: Criar gráficos de alta qualidade para o modelo de conectividade (DCI), 
+# com identificação e destaque analítico de limiares críticos ecológicos.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Cálculo e identificação do ponto de máxima curvatura (elbow point) na relação DCI vs Desmatamento.
+# 2. Extração do R² ajustado do modelo principal para inclusão no gráfico.
+# 3. Construção do gráfico de dispersão com curva de tendência e destaque do ponto de máxima curvatura.
+# 4. Gráfico finalizado salvo em alta resolução (formato PNG).
 # ==============================================================================
 library(gratia)
 
-# --- CÁLCULO DE CURVATURA E THRESHOLDS (DCI vs DEFOREST) ---
+# --- CÁLCULO DO PONTO DE MÁXIMA CURVATURA (DCI vs DEFOREST) ---
 get_elbow_point <- function(data, x_col, y_col) {
   df_sub <- na.omit(data.frame(x = data[[x_col]], y = data[[y_col]]))
   model <- lm(y ~ log(x + 1), data = df_sub)
@@ -420,11 +472,23 @@ p_dci_final <- ggplot(bhs_metrics, aes(x = ratio_DEFOREST, y = DCI_index)) +
   labs(x = "Desmatamento (%)", y = "Índice de Conectividade Dendrítica (DCI)") +
   theme_classic()
 
-ggsave("plot_dci_deforest_steepest_r2_log_v7.png", plot = p_dci_final, width = 28, height = 18, units = "cm", dpi = 300)
+# Salva o gráfico do modelo DCI apontando o ponto crítico (inflexão)
+ggsave("grafico_dci_ponto_critico.png", plot = p_dci_final, width = 28, height = 18, units = "cm", dpi = 300)
 
 
 # ==============================================================================
-# PARTE 8 - VISUALIZAÇÕES FINAIS (PctWater LOGIT e GAMMA)
+# PARTE 8 - GRÁFICOS SWA (PctWater LOGIT e GAMMA)
+# ==============================================================================
+# FINALIDADE: Produzir gráficos detalhados para o modelo Hurdle, demonstrando as 
+# tendências na presença e na quantidade de superfície de água exposta.
+#
+# ETAPAS DE PROCESSAMENTO:
+# 1. Cálculo do R² (Nagelkerke) e do ponto de inflexão (probabilidade de 50%) para o modelo Logit.
+# 2. Gráfico da curva logística com destaque do ponto de inflexão.
+# 3. Cálculo do pseudo-R² e do ponto de máxima curvatura (elbow point) para o modelo Gamma.
+# 4. Construção do gráfico de dispersão para o modelo GAMMA com curva de tendência e destaque do ponto de máxima curvatura.
+# 5. Gráfico finalizado salvo em alta resolução (formato PNG).
+                        
 # ==============================================================================
 # --- PLOT PctWATER LOGIT ---
 r2_logit <- as.numeric(performance::r2_nagelkerke(best_logit_model))
@@ -447,7 +511,8 @@ p_logit_final <- ggplot(bhs_metrics, aes(x = ratio_DEFOREST, y = Pct_pos)) +
   labs(x = "Desmatamento (%)", y = "Presença de superfície de água (0/1)") +
   theme_classic()
 
-ggsave("plot_PctWater_Logit_inflection_v7.png", plot = p_logit_final, width = 28, height = 18, units = "cm", dpi = 300)
+# Salva o gráfico do modelo Hurdle Logit indicando onde a chance de presença de água é de 50%
+ggsave("grafico_pctwater_logit_inflexao.png", plot = p_logit_final, width = 28, height = 18, units = "cm", dpi = 300)
 
 # --- PLOT PctWATER GAMMA ---
 r2_gamma <- 1 - (best_gamma_model$deviance / best_gamma_model$null.deviance)
@@ -479,4 +544,5 @@ p_pct_gamma <- ggplot(data_pos, aes(x = ratio_DEFOREST, y = PctWater_swa)) +
   labs(x = "Desmatamento (%)", y = "Proporção de superfície de água (%)") +
   theme_classic()
 
-ggsave("plot_PctWater_Gamma_steepest_v7.png", plot = p_pct_gamma, width = 28, height = 18, units = "cm", dpi = 300)
+# Salva o gráfico do modelo Hurdle Gamma mostrando o ponto crítico de proporção de água
+ggsave("grafico_pctwater_gamma_ponto_critico.png", plot = p_pct_gamma, width = 28, height = 18, units = "cm", dpi = 300)
